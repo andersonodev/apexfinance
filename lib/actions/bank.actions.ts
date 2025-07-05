@@ -1,80 +1,96 @@
 "use server";
 
-import {
-  ACHClass,
-  CountryCode,
-  TransferAuthorizationCreateRequest,
-  TransferCreateRequest,
-  TransferNetwork,
-  TransferType,
-} from "plaid";
-
-import { plaidClient } from "../plaid";
+// Pluggy imports
+import { pluggyApiClient } from "../pluggy-api";
 import { parseStringify } from "../utils";
 
 import { getTransactionsByBankId } from "./transaction.actions";
 import { getBanks, getBank } from "./user.actions";
 
-// Get multiple bank accounts
+// Get multiple bank accounts using Pluggy
 export const getAccounts = async ({ userId }: getAccountsProps) => {
   try {
+    console.log('📊 Obtendo contas bancárias para usuário:', userId);
+    
     // get banks from db
     const banks = await getBanks({ userId });
+    
+    if (!banks || banks.length === 0) {
+      console.log('⚠️ Nenhum banco encontrado para o usuário');
+      return { data: [], totalBanks: 0, totalCurrentBalance: 0 };
+    }
 
     const accounts = await Promise.all(
       banks?.map(async (bank: Bank) => {
-        // get each account info from plaid
-        const accountsResponse = await plaidClient.accountsGet({
-          access_token: bank.accessToken,
-        });
-        const accountData = accountsResponse.data.accounts[0];
+        try {
+          // get each account info from Pluggy using itemId
+          const pluggyAccounts = await pluggyApiClient.getAccounts(bank.itemId);
+          
+          if (!pluggyAccounts || pluggyAccounts.length === 0) {
+            console.log('⚠️ Nenhuma conta encontrada para o banco:', bank.bankId);
+            return null;
+          }
 
-        // get institution info from plaid
-        const institution = await getInstitution({
-          institutionId: accountsResponse.data.item.institution_id!,
-        });
+          const accountData = pluggyAccounts[0]; // Use primeira conta
 
-        const account = {
-          id: accountData.account_id,
-          availableBalance: accountData.balances.available!,
-          currentBalance: accountData.balances.current!,
-          institutionId: institution.institution_id,
-          name: accountData.name,
-          officialName: accountData.official_name,
-          mask: accountData.mask!,
-          type: accountData.type as string,
-          subtype: accountData.subtype! as string,
-          appwriteItemId: bank.$id,
-          sharaebleId: bank.shareableId,
-        };
+          const account = {
+            id: accountData.id,
+            availableBalance: accountData.creditData?.availableCreditLimit || accountData.balance,
+            currentBalance: accountData.balance,
+            institutionId: accountData.itemId,
+            name: accountData.name,
+            officialName: accountData.marketingName || accountData.name,
+            mask: accountData.number?.slice(-4) || '****',
+            type: accountData.type as string,
+            subtype: accountData.subtype as string,
+            appwriteItemId: bank.$id,
+            shareableId: bank.shareableId,
+          };
 
-        return account;
+          return account;
+        } catch (error) {
+          console.error('❌ Erro ao processar banco:', bank.bankId, error);
+          return null;
+        }
       })
     );
 
-    const totalBanks = accounts.length;
-    const totalCurrentBalance = accounts.reduce((total, account) => {
+    // Filter out null results
+    const validAccounts = accounts.filter(account => account !== null);
+    
+    const totalBanks = validAccounts.length;
+    const totalCurrentBalance = validAccounts.reduce((total, account) => {
       return total + account.currentBalance;
     }, 0);
-
-    return parseStringify({ data: accounts, totalBanks, totalCurrentBalance });
+    
+    console.log('✅ Contas obtidas com sucesso:', validAccounts.length);
+    return parseStringify({ data: validAccounts, totalBanks, totalCurrentBalance });
   } catch (error) {
-    console.error("An error occurred while getting the accounts:", error);
+    console.error('❌ Erro ao obter contas:', error);
     return { data: [], totalBanks: 0, totalCurrentBalance: 0 };
   }
 };
 
-// Get one bank account
+// Get one bank account using Pluggy
 export const getAccount = async ({ appwriteItemId }: getAccountProps) => {
   try {
+    console.log('📊 Obtendo conta bancária individual:', appwriteItemId);
+    
     // get bank from db
     const bank = await getBank({ documentId: appwriteItemId });
+    
+    if (!bank) {
+      throw new Error('Banco não encontrado');
+    }
 
-    // get account info from plaid
-    const accountsResponse = await plaidClient.accountsGet({
-      access_token: bank.accessToken,
-    });
-    const accountData = accountsResponse.data.accounts[0];
+    // get account info from Pluggy using itemId
+    const pluggyAccounts = await pluggyApiClient.getAccounts(bank.itemId);
+    
+    if (!pluggyAccounts || pluggyAccounts.length === 0) {
+      throw new Error('Nenhuma conta encontrada para este banco');
+    }
+    
+    const accountData = pluggyAccounts[0];
 
     // get transfer transactions from appwrite
     const transferTransactionsData = await getTransactionsByBankId({
@@ -93,96 +109,99 @@ export const getAccount = async ({ appwriteItemId }: getAccountProps) => {
       })
     ) || [];
 
-    // get institution info from plaid
-    const institution = await getInstitution({
-      institutionId: accountsResponse.data.item.institution_id!,
-    });
-
-    const transactions = await getTransactions({
-      accessToken: bank?.accessToken,
+    // get transactions from Pluggy
+    const pluggyTransactions = await getPluggyTransactions({
+      itemId: bank.itemId,
+      accountId: accountData.id,
     }) || [];
 
     const account = {
-      id: accountData.account_id,
-      availableBalance: accountData.balances.available!,
-      currentBalance: accountData.balances.current!,
-      institutionId: institution.institution_id,
+      id: accountData.id,
+      availableBalance: accountData.creditData?.availableCreditLimit || accountData.balance,
+      currentBalance: accountData.balance,
+      institutionId: accountData.itemId,
       name: accountData.name,
-      officialName: accountData.official_name,
-      mask: accountData.mask!,
+      officialName: accountData.marketingName || accountData.name,
+      mask: accountData.number?.slice(-4) || '****',
       type: accountData.type as string,
-      subtype: accountData.subtype! as string,
+      subtype: accountData.subtype as string,
       appwriteItemId: bank.$id,
+      shareableId: bank.shareableId,
     };
 
     // sort transactions by date such that the most recent transaction is first
-    const allTransactions = [...transactions, ...transferTransactions].sort(
+    const allTransactions = [...pluggyTransactions, ...transferTransactions].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
 
+    console.log('✅ Conta individual obtida com sucesso');
     return parseStringify({
       data: account,
       transactions: allTransactions,
     });
   } catch (error) {
-    console.error("An error occurred while getting the account:", error);
+    console.error('❌ Erro ao obter conta individual:', error);
     return { data: null, transactions: [] };
   }
 };
 
-// Get bank info
-export const getInstitution = async ({
-  institutionId,
-}: getInstitutionProps) => {
+// Get institution info (simplified for Pluggy)
+export const getInstitution = async ({ institutionId }: getInstitutionProps) => {
   try {
-    const institutionResponse = await plaidClient.institutionsGetById({
+    // Para Pluggy, usamos o nome da instituição diretamente
+    return parseStringify({
       institution_id: institutionId,
-      country_codes: ["US"] as CountryCode[],
+      name: institutionId,
+      primary_color: '#1f2937',
+      logo: null,
     });
-
-    const intitution = institutionResponse.data.institution;
-
-    return parseStringify(intitution);
   } catch (error) {
-    console.error("An error occurred while getting the accounts:", error);
+    console.error('❌ Erro ao obter informações da instituição:', error);
+    return null;
   }
 };
 
-// Get transactions
-export const getTransactions = async ({
-  accessToken,
-}: getTransactionsProps) => {
-  let hasMore = true;
-  let transactions: any = [];
-
+// Get transactions from Pluggy
+export const getPluggyTransactions = async ({ itemId, accountId }: GetPluggyTransactionsProps) => {
   try {
-    // Iterate through each page of new transaction updates for item
-    while (hasMore) {
-      const response = await plaidClient.transactionsSync({
-        access_token: accessToken,
-      });
+    console.log('💳 Obtendo transações Pluggy para itemId:', itemId, 'accountId:', accountId);
+    
+    // Get transactions for the account
+    const transactions = await pluggyApiClient.getTransactions(accountId);
 
-      const data = response.data;
+    const formattedTransactions = transactions.map((transaction: any) => ({
+      id: transaction.id,
+      name: transaction.description || 'Transação',
+      paymentChannel: 'online',
+      type: transaction.amount < 0 ? 'debit' : 'credit',
+      accountId: transaction.accountId,
+      amount: Math.abs(transaction.amount),
+      pending: false,
+      category: transaction.category || 'other',
+      date: transaction.date,
+      image: '',
+    }));
 
-      transactions = response.data.added.map((transaction) => ({
-        id: transaction.transaction_id,
-        name: transaction.name,
-        paymentChannel: transaction.payment_channel,
-        type: transaction.payment_channel,
-        accountId: transaction.account_id,
-        amount: transaction.amount,
-        pending: transaction.pending,
-        category: transaction.category ? transaction.category[0] : "",
-        date: transaction.date,
-        image: transaction.logo_url,
-      }));
-
-      hasMore = data.has_more;
-    }
-
-    return parseStringify(transactions);
+    console.log('✅ Transações Pluggy obtidas:', formattedTransactions.length);
+    return parseStringify(formattedTransactions);
   } catch (error) {
-    console.error("An error occurred while getting the transactions:", error);
+    console.error('❌ Erro ao obter transações Pluggy:', error);
+    return [];
+  }
+};
+
+// Função legacy compatível (mantida para compatibilidade)
+export const getTransactions = async ({ itemId }: { itemId: string }) => {
+  try {
+    // Para manter compatibilidade, obtemos a primeira conta do item
+    const accounts = await pluggyApiClient.getAccounts(itemId);
+    if (!accounts || accounts.length === 0) {
+      return [];
+    }
+    
+    return getPluggyTransactions({ itemId, accountId: accounts[0].id });
+  } catch (error) {
+    console.error('❌ Erro na função legacy getTransactions:', error);
     return [];
   }
 };

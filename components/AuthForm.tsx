@@ -26,7 +26,7 @@ import { authFormSchema } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { getLoggedInUser, signIn, signUp } from '@/lib/actions/user.actions';
-import PlaidLink from './PlaidLink';
+import PluggyLink from './PluggyLink';
 
 const AuthForm = ({ type }: { type: string }) => {
   const router = useRouter();
@@ -86,7 +86,7 @@ const AuthForm = ({ type }: { type: string }) => {
             if (skipBankConnection) {
               router.push('/');
             }
-            // Se não pulou, o usuário verá o PlaidLink abaixo
+            // Se não pulou, o usuário verá o PluggyLink abaixo
           } else {
             throw new Error('Falha ao criar usuário. Tente novamente.');
           }

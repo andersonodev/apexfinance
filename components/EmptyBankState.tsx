@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Button } from './ui/button'
-import PlaidLink from './PlaidLink'
+import PluggyLink from './PluggyLink'
 import Image from 'next/image'
 
 interface EmptyBankStateProps {
@@ -66,7 +66,7 @@ const EmptyBankState = ({ user }: EmptyBankStateProps) => {
               </div>
               
               <div className="pt-4">
-                <PlaidLink user={user} variant="primary" />
+                <PluggyLink user={user} variant="primary" />
               </div>
               
               <div className="pt-2">

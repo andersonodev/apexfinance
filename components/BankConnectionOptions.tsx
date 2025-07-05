@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Button } from './ui/button'
-import PlaidLink from './PlaidLink'
+import PluggyLink from './PluggyLink'
 import { useRouter } from 'next/navigation'
 
 interface BankConnectionOptionsProps {
@@ -30,7 +30,7 @@ const BankConnectionOptions = ({ user }: BankConnectionOptionsProps) => {
       
       <div className="flex flex-col gap-3">
         {/* Botão principal para conectar banco */}
-        <PlaidLink user={user} variant="primary" />
+        <PluggyLink user={user} variant="primary" />
         
         {/* Botão secundário para pular */}
         <Button 

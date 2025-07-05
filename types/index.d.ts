@@ -87,9 +87,9 @@ declare type Bank = {
   $id: string;
   accountId: string;
   bankId: string;
-  accessToken: string;
-  fundingSourceUrl: string;
+  itemId: string; // Pluggy Item ID
   userId: string;
+  fundingSourceUrl: string;
   shareableId: string;
 };
 
@@ -174,10 +174,9 @@ declare interface PaginationProps {
   totalPages: number;
 }
 
-declare interface PlaidLinkProps {
+declare interface PluggyLinkProps {
   user: User;
-  variant?: "primary" | "ghost";
-  dwollaCustomerId?: string;
+  variant?: "primary" | "ghost" | "default";
 }
 
 // declare type User = sdk.Models.Document & {
@@ -271,13 +270,13 @@ declare interface getInstitutionProps {
 }
 
 declare interface getTransactionsProps {
-  accessToken: string;
+  itemId: string; // Pluggy Item ID
 }
 
 declare interface CreateFundingSourceOptions {
   customerId: string; // Dwolla Customer ID
   fundingSourceName: string; // Dwolla Funding Source Name
-  plaidToken: string; // Plaid Account Processor Token
+  pluggyToken: string; // Pluggy Item ID
   _links: object; // Dwolla On Demand Authorization Link
 }
 
@@ -304,13 +303,15 @@ declare interface getUserInfoProps {
   userId: string;
 }
 
-declare interface exchangePublicTokenProps {
-  publicToken: string;
+declare interface createPluggyItemProps {
   user: User;
+  connectorId: string;
+  credentials: Record<string, string>;
+  clientUserId?: string;
 }
 
 declare interface createBankAccountProps {
-  accessToken: string;
+  itemId: string; // Pluggy Item ID
   userId: string;
   accountId: string;
   bankId: string;
@@ -328,4 +329,100 @@ declare interface getBankProps {
 
 declare interface getBankByAccountIdProps {
   accountId: string;
+}
+
+// ========================================
+// PLUGGY SPECIFIC TYPES
+// ========================================
+
+declare interface PluggyConnector {
+  id: string;
+  name: string;
+  primaryColor: string;
+  institutionUrl: string;
+  country: string;
+  type: string;
+  hasMFA: boolean;
+  health: {
+    status: string;
+    stage: string;
+  };
+  products: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+declare interface PluggyItem {
+  id: string;
+  connector: PluggyConnector;
+  createdAt: string;
+  updatedAt: string;
+  status: string;
+  executionStatus: string;
+  lastUpdatedAt: string;
+  webhookUrl?: string;
+  clientUserId?: string;
+  products: string[];
+}
+
+declare interface PluggyAccount {
+  id: string;
+  itemId: string;
+  type: string;
+  subtype: string;
+  number: string;
+  name: string;
+  marketingName?: string;
+  balance: number;
+  currencyCode: string;
+  bankData?: {
+    transferNumber?: string;
+    closingBalance?: number;
+  };
+  creditData?: {
+    level?: string;
+    brand?: string;
+    balanceCloseDate?: string;
+    balanceDueDate?: string;
+    availableCreditLimit?: number;
+    balanceForeignCurrency?: number;
+    minimumPayment?: number;
+    creditLimit?: number;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+declare interface PluggyTransaction {
+  id: string;
+  accountId: string;
+  description: string;
+  descriptionRaw?: string;
+  currencyCode: string;
+  amount: number;
+  date: string;
+  balance?: number;
+  category?: string;
+  categoryId?: string;
+  providerCode?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+declare interface CreatePluggyItemProps {
+  user: User;
+  connectorId: string;
+  credentials: Record<string, string>;
+  clientUserId?: string;
+}
+
+declare interface GetPluggyAccountsProps {
+  itemId: string;
+}
+
+declare interface GetPluggyTransactionsProps {
+  itemId: string;
+  accountId: string;
+  from?: string;
+  to?: string;
 }

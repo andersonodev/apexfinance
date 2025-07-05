@@ -7,7 +7,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import Footer from './Footer'
-import PlaidLink from './PlaidLink'
+import PluggyLink from './PluggyLink'
 import { getBanks } from '@/lib/actions/user.actions'
 
 const Sidebar = ({ user }: SiderbarProps) => {
@@ -95,13 +95,13 @@ const Sidebar = ({ user }: SiderbarProps) => {
           )
         })}
         
-        {/* Condicionalmente mostra o PlaidLink */}
+        {/* Condicionalmente mostra o PluggyLink */}
         {hasBanks === false && (
           <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
             <p className="text-sm text-blue-600 mb-2 font-medium">
               Conecte sua primeira conta
             </p>
-            <PlaidLink user={user} variant="ghost" />
+            <PluggyLink user={user} variant="ghost" />
             <p className="text-xs text-blue-500 mt-1">
               Para acessar todas as funcionalidades
             </p>
@@ -109,7 +109,7 @@ const Sidebar = ({ user }: SiderbarProps) => {
         )}
         
         {hasBanks === true && (
-          <PlaidLink user={user} />
+          <PluggyLink user={user} />
         )}
       </nav>
 

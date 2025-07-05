@@ -4,11 +4,10 @@ import { ID, Query } from "node-appwrite";
 import { createAdminClient, createSessionClient } from "../appwrite";
 import { cookies } from "next/headers";
 import { encryptId, extractCustomerIdFromUrl, parseStringify } from "../utils";
-import { CountryCode, ProcessorTokenCreateRequest, ProcessorTokenCreateRequestProcessorEnum, Products } from "plaid";
-
-import { plaidClient } from '@/lib/plaid';
+// Pluggy imports
 import { revalidatePath } from "next/cache";
 import { addFundingSource, createDwollaCustomer } from "./dwolla.actions";
+import { pluggyApiClient } from "@/lib/pluggy-api";
 
 const {
   APPWRITE_DATABASE_ID: DATABASE_ID,
@@ -190,23 +189,26 @@ export const logoutAccount = async () => {
   }
 }
 
-export const createLinkToken = async (user: User) => {
+export const createPluggyItem = async ({ 
+  user, 
+  connectorId, 
+  credentials,
+  clientUserId 
+}: CreatePluggyItemProps) => {
   try {
-    const tokenParams = {
-      user: {
-        client_user_id: user.$id
-      },
-      client_name: `${user.firstName} ${user.lastName}`,
-      products: ['auth'] as Products[],
-      language: 'en',
-      country_codes: ['US'] as CountryCode[],
-    }
+    console.log('🔗 Criando Item Pluggy para usuário:', user.$id);
+    
+    const itemResponse = await pluggyApiClient.createItem(
+      connectorId,
+      credentials,
+      clientUserId || user.$id
+    );
 
-    const response = await plaidClient.linkTokenCreate(tokenParams);
-
-    return parseStringify({ linkToken: response.data.link_token })
+    console.log('✅ Item Pluggy criado com sucesso:', itemResponse.id);
+    return parseStringify({ itemId: itemResponse.id, itemData: itemResponse });
   } catch (error) {
-    console.log(error);
+    console.error('❌ Erro ao criar Item Pluggy:', error);
+    throw error;
   }
 }
 
@@ -214,7 +216,7 @@ export const createBankAccount = async ({
   userId,
   bankId,
   accountId,
-  accessToken,
+  itemId,
   fundingSourceUrl,
   shareableId,
 }: createBankAccountProps) => {
@@ -229,7 +231,7 @@ export const createBankAccount = async ({
         userId,
         bankId,
         accountId,
-        accessToken,
+        itemId,
         fundingSourceUrl,
         shareableId,
       }
@@ -241,65 +243,63 @@ export const createBankAccount = async ({
   }
 }
 
-export const exchangePublicToken = async ({
-  publicToken,
+export const processPluggyConnection = async ({
+  itemId,
   user,
-}: exchangePublicTokenProps) => {
+}: {
+  itemId: string;
+  user: User;
+}) => {
   try {
-    // Exchange public token for access token and item ID
-    const response = await plaidClient.itemPublicTokenExchange({
-      public_token: publicToken,
-    });
-
-    const accessToken = response.data.access_token;
-    const itemId = response.data.item_id;
+    console.log('🔄 Processando conexão Pluggy para itemId:', itemId);
     
-    // Get account information from Plaid using the access token
-    const accountsResponse = await plaidClient.accountsGet({
-      access_token: accessToken,
-    });
+    // Obter informações das contas da Pluggy
+    const accounts = await pluggyApiClient.getAccounts(itemId);
+    
+    if (!accounts || accounts.length === 0) {
+      throw new Error('Nenhuma conta encontrada para este item');
+    }
 
-    const accountData = accountsResponse.data.accounts[0];
+    // Usar a primeira conta
+    const accountData = accounts[0];
+    console.log('💳 Conta encontrada:', accountData.name);
 
-    // Create a processor token for Dwolla using the access token and account ID
-    const request: ProcessorTokenCreateRequest = {
-      access_token: accessToken,
-      account_id: accountData.account_id,
-      processor: "dwolla" as ProcessorTokenCreateRequestProcessorEnum,
-    };
+    // Criar token de processamento para Dwolla
+    const processorToken = itemId;
 
-    const processorTokenResponse = await plaidClient.processorTokenCreate(request);
-    const processorToken = processorTokenResponse.data.processor_token;
-
-     // Create a funding source URL for the account using the Dwolla customer ID, processor token, and bank name
-     const fundingSourceUrl = await addFundingSource({
+    // Criar fonte de financiamento para Dwolla
+    const fundingSourceUrl = await addFundingSource({
       dwollaCustomerId: user.dwollaCustomerId,
       processorToken,
       bankName: accountData.name,
     });
     
-    // If the funding source URL is not created, throw an error
-    if (!fundingSourceUrl) throw Error;
+    if (!fundingSourceUrl) {
+      throw new Error('Falha ao criar fonte de financiamento');
+    }
 
-    // Create a bank account using the user ID, item ID, account ID, access token, funding source URL, and shareableId ID
+    // Criar conta bancária no banco de dados
     await createBankAccount({
       userId: user.$id,
-      bankId: itemId,
-      accountId: accountData.account_id,
-      accessToken,
+      bankId: accountData.itemId,
+      accountId: accountData.id,
+      itemId,
       fundingSourceUrl,
-      shareableId: encryptId(accountData.account_id),
+      shareableId: encryptId(accountData.id),
     });
 
-    // Revalidate the path to reflect the changes
+    // Revalidar a página para refletir as mudanças
     revalidatePath("/");
 
-    // Return a success message
+    console.log('✅ Conexão Pluggy processada com sucesso');
     return parseStringify({
-      publicTokenExchange: "complete",
+      pluggyConnection: "complete",
+      accountId: accountData.id,
+      bankName: accountData.name,
     });
   } catch (error) {
-    console.error("An error occurred while creating exchanging token:", error);
+    console.error("❌ Erro ao processar conexão Pluggy:", error);
+    throw error;
   }
 }
 
@@ -350,5 +350,35 @@ export const getBankByAccountId = async ({ accountId }: getBankByAccountIdProps)
     return parseStringify(bank.documents[0]);
   } catch (error) {
     console.log(error)
+  }
+}
+
+export const getPluggyAccountInfo = async ({ itemId }: { itemId: string }) => {
+  try {
+    console.log('📊 Obtendo informações da conta Pluggy para itemId:', itemId);
+    
+    const accounts = await pluggyApiClient.getAccounts(itemId);
+    
+    if (!accounts || accounts.length === 0) {
+      throw new Error('Nenhuma conta encontrada');
+    }
+
+    const account = accounts[0];
+    
+    return parseStringify({
+      id: account.id,
+      name: account.name,
+      officialName: account.marketingName || account.name,
+      type: account.type,
+      subtype: account.subtype,
+      currentBalance: account.balance,
+      availableBalance: account.creditData?.availableCreditLimit || account.balance,
+      currency: account.currencyCode,
+      institutionName: account.itemId, // Placeholder - será obtido do item
+      mask: account.number.slice(-4), // Últimos 4 dígitos
+    });
+  } catch (error) {
+    console.error('❌ Erro ao obter informações da conta Pluggy:', error);
+    throw error;
   }
 }

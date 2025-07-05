@@ -61,7 +61,7 @@ const getDwollaClient = () => {
   }
 };
 
-// Create a Dwolla Funding Source using a Plaid Processor Token
+// Create a Dwolla Funding Source using a Pluggy Token
 export const createFundingSource = async (
   options: CreateFundingSourceOptions
 ) => {
@@ -70,7 +70,7 @@ export const createFundingSource = async (
     return await dwollaClient
       .post(`customers/${options.customerId}/funding-sources`, {
         name: options.fundingSourceName,
-        plaidToken: options.plaidToken,
+        pluggyToken: options.pluggyToken,
       })
       .then((res: any) => res.headers.get("location"));
   } catch (err) {
@@ -197,7 +197,7 @@ export const addFundingSource = async ({
     const fundingSourceOptions = {
       customerId: dwollaCustomerId,
       fundingSourceName: bankName,
-      plaidToken: processorToken,
+      pluggyToken: processorToken,
       _links: dwollaAuthLinks,
     };
     return await createFundingSource(fundingSourceOptions);
